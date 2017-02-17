@@ -29,8 +29,6 @@ public class App {
 	private String redirectURI;
 	private String tokenFileName;
 
-	private WebView authWebView;
-	private String authCode;
 	private String token;
 	private int userId;
 	private VkApiClient vk;
@@ -51,7 +49,7 @@ public class App {
 			e.printStackTrace();
 		}
 
-		authWebView = new WebView("VK authorization", 655, 372);
+//		authWebView = new VkAuthWebView("VK authorization", 655, 372);
 	}
 
 	public static void main(String[] args) {
@@ -59,86 +57,51 @@ public class App {
 	}
 
 	public void start() {
-		if (!readTokenFromFile()) {
-			authorize();
-		}
-//		initAPIClient();
+		TransportClient transportClient = HttpTransportClient.getInstance();
+		vk = new VkApiClient(transportClient);
+		Credentials credentials = authorize();
+		actor = new UserActor(credentials.getUserId(), credentials.getToken());
 		process();
 	}
 
-	private void authorize() {
-		// using web view for authorization
-		/*
-		 * https://oauth.vk.com/authorize?client_id=5490057 &display=page
-		 * &redirect_uri=https://oauth.vk.com/blank.html &scope=friends
-		 * &response_type=token &v=5.52
-		 */
-		StringBuilder builder = new StringBuilder();
-		builder.append("https://oauth.vk.com/authorize?client_id=").append(appID).append("&display=").append("page")
-				.append("&redirect_uri=").append(redirectURI).append("&scope=").append("friends")
-				.append("&response_type=").append("code").append("&v=").append("5.62");
+	private Credentials authorize() {
+		Credentials credentials = readCredentialsFromFile();
+		if(credentials == null) {
+			// using web view for authorization
+			/*
+			 * https://oauth.vk.com/authorize?client_id=5490057 &display=page
+			 * &redirect_uri=https://oauth.vk.com/blank.html &scope=friends
+			 * &response_type=token &v=5.52
+			 */
+			StringBuilder builder = new StringBuilder();
+			builder.append("https://oauth.vk.com/authorize?client_id=").append(appID).append("&display=").append("page")
+					.append("&redirect_uri=").append(redirectURI).append("&scope=").append("friends")
+					.append("&response_type=").append("code").append("&v=").append("5.62");
 
-		// non-blocking operation
-//		new WebView(this, "VK authorization", 640, 480).openURL(builder.toString());
-		
-		// blocking operation
-		String newLocation = authWebView.openURL(builder.toString());
-		System.out.println("New location from authorize: " + newLocation);
-		authCode = extractCode(newLocation);
-		
-		TransportClient transportClient = HttpTransportClient.getInstance();
-		vk = new VkApiClient(transportClient);
-		actor = new UserActor(userId, token);
-		
-		UserAuthResponse authResponse = null;
-		try {
-			authResponse = vk.oauth().userAuthorizationCodeFlow(appID, clientSecret, redirectURI, authCode).execute();
-		} catch (ApiException e) {
-			e.printStackTrace();
-		} catch (ClientException e) {
-			e.printStackTrace();
+			// blocking operation
+			String newURL = new VkAuthWebView("VK authorization", 655, 372).openURL(builder.toString());
+			System.out.println("New location from authorize: " + newURL);
+			String authCode = extractAuthCodeFromURL(newURL);
+			
+			UserAuthResponse authResponse = null;
+			try {
+				authResponse = vk.oauth().userAuthorizationCodeFlow(appID, clientSecret, redirectURI, authCode).execute();
+			} catch (ApiException e) {
+				e.printStackTrace();
+			} catch (ClientException e) {
+				e.printStackTrace();
+			}
+			userId = authResponse.getUserId();
+			token = authResponse.getAccessToken();
+			credentials = new Credentials(userId, token);
+			saveCredentialsToFile(credentials);
+			return credentials;
+		} else {
+			return readCredentialsFromFile();
 		}
-
-		userId = authResponse.getUserId();
-		token = authResponse.getAccessToken();
-	}
-
-	public void onWebViewClosed() {
-		String url = authWebView.getURL();
-		authCode = extractCode(url);
-
-		
-		
-		UserAuthResponse authResponse = null;
-		try {
-			authResponse = vk.oauth().userAuthorizationCodeFlow(appID, clientSecret, redirectURI, authCode).execute();
-		} catch (ApiException e) {
-			e.printStackTrace();
-		} catch (ClientException e) {
-			e.printStackTrace();
-		}
-
-		userId = authResponse.getUserId();
-		token = authResponse.getAccessToken();
-		saveTokenToFile();
-
-		initAPIClient();
-	}
-
-	private void initAPIClient() {
-		
-		
-//		process();
 	}
 
 	private void process() {
-		// if (readTokenFromFile()) {
-		// TransportClient transportClient = HttpTransportClient.getInstance();
-		// vk = new VkApiClient(transportClient);
-		// }
-
-		// actor = new UserActor(userId, token);
-
 		try {
 			List<UserXtrLists> friends = vk.friends().get(actor, UserField.SCREEN_NAME, UserField.SEX).execute()
 					.getItems();
@@ -156,7 +119,7 @@ public class App {
 
 	}
 
-	private String extractCode(String url) {
+	private String extractAuthCodeFromURL(String url) {
 		String regex = "code=[a-z0-9]*";
 		Pattern pattern = Pattern.compile(regex);
 		Matcher matcher = pattern.matcher(url);
@@ -172,11 +135,11 @@ public class App {
 		return result;
 	}
 
-	private void saveTokenToFile() {
+	private void saveCredentialsToFile(Credentials credentials) {
 		try {
 			PrintWriter writer = new PrintWriter(tokenFileName, "UTF-8");
-			writer.println(userId);
-			writer.print(token);
+			writer.println(credentials.getUserId());
+			writer.print(credentials.getToken());
 			writer.close();
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
@@ -185,24 +148,25 @@ public class App {
 		}
 	}
 
-	private boolean readTokenFromFile() {
+	private Credentials readCredentialsFromFile() {
 		File file = new File(tokenFileName);
 		if (file.exists() && !file.isDirectory()) {
 			try {
 				BufferedReader br = new BufferedReader(new FileReader(tokenFileName));
 				userId = Integer.parseInt(br.readLine());
 				token = br.readLine();
+				Credentials credentials = new Credentials(userId, token);
 				br.close();
-				return true;
+				return credentials;
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
-				return false;
+				return null;
 			} catch (IOException e) {
 				e.printStackTrace();
-				return false;
+				return null;
 			}
 		} else {
-			return false;
+			return null;
 		}
 	}
 

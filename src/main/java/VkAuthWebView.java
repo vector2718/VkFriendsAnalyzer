@@ -24,7 +24,7 @@ public class VkAuthWebView {
 	private javafx.scene.web.WebView fxWebView;
 	private WebEngine engine;
 	private String location;
-	private String newLocation;
+	private String newURL;
 
 	private Object lock = new Object();
 
@@ -58,7 +58,6 @@ public class VkAuthWebView {
 			public void windowClosing(WindowEvent e) {
 				super.windowClosing(e);
 				synchronized (lock) {
-					// unlock when window is closing
 					lock.notify();
 				}
 			}
@@ -87,9 +86,8 @@ public class VkAuthWebView {
 
 			public void changed(ObservableValue<? extends State> observable, State oldState, State newState) {
 				if (newState == Worker.State.SUCCEEDED) {
-					newLocation = getURL();
-					System.out.println("New location: " + newLocation);
-					if (newLocation.startsWith("https://oauth.vk.com/blank.html#code=")) {
+					newURL = getURL();
+					if (newURL.startsWith("https://oauth.vk.com/blank.html#code=")) {
 						SwingUtilities.invokeLater(new Runnable() {
 							public void run() {
 								frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
@@ -110,9 +108,7 @@ public class VkAuthWebView {
 			});
 
 			synchronized (lock) {
-				System.out.println("Before lock.wait()");
 				lock.wait();
-				System.out.println("After lock.wait()");
 			}
 
 		} catch (InterruptedException e) {
@@ -120,7 +116,7 @@ public class VkAuthWebView {
 		} catch (ExecutionException e) {
 			e.printStackTrace();
 		}
-		return newLocation;
+		return newURL;
 	}
 
 	public String getURL() {
