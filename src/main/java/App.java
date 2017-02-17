@@ -22,12 +22,12 @@ import com.vk.api.sdk.objects.UserAuthResponse;
 import com.vk.api.sdk.objects.friends.UserXtrLists;
 import com.vk.api.sdk.queries.users.UserField;
 
-public class App implements IWebViewCallback {
+public class App {
 
-	private int APP_ID;
-	private String CLIENT_SECRET;
-	private String REDIRECT_URI;
-	private String TOKEN_FILE;
+	private int appID;
+	private String clientSecret;
+	private String redirectURI;
+	private String tokenFileName;
 
 	private WebView authWebView;
 	private String authCode;
@@ -41,62 +41,77 @@ public class App implements IWebViewCallback {
 			FileInputStream fis = new FileInputStream("src/main/resources/config.properties");
 			Properties properties = new Properties();
 			properties.load(fis);
-			APP_ID = Integer.parseInt(properties.getProperty("vk.api.app_id"));
-			CLIENT_SECRET = properties.getProperty("vk.api.client_secret");
-			REDIRECT_URI = properties.getProperty("vk.api.redirect_uri");
-			TOKEN_FILE = properties.getProperty("vk.api.token_file");
+			appID = Integer.parseInt(properties.getProperty("vk.api.app_id"));
+			clientSecret = properties.getProperty("vk.api.client_secret");
+			redirectURI = properties.getProperty("vk.api.redirect_uri");
+			tokenFileName = properties.getProperty("vk.api.token_file");
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 
-		authWebView = new WebView(this, "VK authorization", 640, 480);
-	}
-
-	public void start() {
-		if (!readTokenFromFile()) {
-
-			/*
-			 * Example:
-			 * 
-			 * https://oauth.vk.com/authorize?client_id=5490057 &display=page
-			 * &redirect_uri=https://oauth.vk.com/blank.html &scope=friends
-			 * &response_type=token &v=5.52
-			 */
-			StringBuilder builder = new StringBuilder();
-			builder.append("https://oauth.vk.com/authorize?client_id=").append(APP_ID).append("&display=")
-					.append("page").append("&redirect_uri=").append(REDIRECT_URI).append("&scope=").append("friends")
-					.append("&response_type=").append("code").append("&v=").append("5.62");
-
-			authWebView.openURL(builder.toString());
-		} else {
-			process();
-		}
+		authWebView = new WebView("VK authorization", 655, 372);
 	}
 
 	public static void main(String[] args) {
 		new App().start();
 	}
 
-	public void onWebViewClosed() {
-		String url = authWebView.getURL();
-		System.out.println(url);
-
-		authCode = extractCode(url);
-		System.out.println("Authorization code: " + authCode);
-
-		initAPIClient();
+	public void start() {
+		if (!readTokenFromFile()) {
+			authorize();
+		}
+//		initAPIClient();
+		process();
 	}
 
-	private void initAPIClient() {
+	private void authorize() {
+		// using web view for authorization
+		/*
+		 * https://oauth.vk.com/authorize?client_id=5490057 &display=page
+		 * &redirect_uri=https://oauth.vk.com/blank.html &scope=friends
+		 * &response_type=token &v=5.52
+		 */
+		StringBuilder builder = new StringBuilder();
+		builder.append("https://oauth.vk.com/authorize?client_id=").append(appID).append("&display=").append("page")
+				.append("&redirect_uri=").append(redirectURI).append("&scope=").append("friends")
+				.append("&response_type=").append("code").append("&v=").append("5.62");
+
+		// non-blocking operation
+//		new WebView(this, "VK authorization", 640, 480).openURL(builder.toString());
+		
+		// blocking operation
+		String newLocation = authWebView.openURL(builder.toString());
+		System.out.println("New location from authorize: " + newLocation);
+		authCode = extractCode(newLocation);
+		
 		TransportClient transportClient = HttpTransportClient.getInstance();
 		vk = new VkApiClient(transportClient);
-
+		actor = new UserActor(userId, token);
+		
 		UserAuthResponse authResponse = null;
 		try {
-			authResponse = vk.oauth().userAuthorizationCodeFlow(APP_ID, CLIENT_SECRET, REDIRECT_URI, authCode)
-					.execute();
+			authResponse = vk.oauth().userAuthorizationCodeFlow(appID, clientSecret, redirectURI, authCode).execute();
+		} catch (ApiException e) {
+			e.printStackTrace();
+		} catch (ClientException e) {
+			e.printStackTrace();
+		}
+
+		userId = authResponse.getUserId();
+		token = authResponse.getAccessToken();
+	}
+
+	public void onWebViewClosed() {
+		String url = authWebView.getURL();
+		authCode = extractCode(url);
+
+		
+		
+		UserAuthResponse authResponse = null;
+		try {
+			authResponse = vk.oauth().userAuthorizationCodeFlow(appID, clientSecret, redirectURI, authCode).execute();
 		} catch (ApiException e) {
 			e.printStackTrace();
 		} catch (ClientException e) {
@@ -106,18 +121,24 @@ public class App implements IWebViewCallback {
 		userId = authResponse.getUserId();
 		token = authResponse.getAccessToken();
 		saveTokenToFile();
+
+		initAPIClient();
+	}
+
+	private void initAPIClient() {
 		
-		process();
+		
+//		process();
 	}
 
 	private void process() {
-		if(readTokenFromFile()) {
-			TransportClient transportClient = HttpTransportClient.getInstance();
-			vk = new VkApiClient(transportClient);
-		}
-		
-		actor = new UserActor(userId, token);
-		
+		// if (readTokenFromFile()) {
+		// TransportClient transportClient = HttpTransportClient.getInstance();
+		// vk = new VkApiClient(transportClient);
+		// }
+
+		// actor = new UserActor(userId, token);
+
 		try {
 			List<UserXtrLists> friends = vk.friends().get(actor, UserField.SCREEN_NAME, UserField.SEX).execute()
 					.getItems();
@@ -150,10 +171,10 @@ public class App implements IWebViewCallback {
 		}
 		return result;
 	}
-	
+
 	private void saveTokenToFile() {
 		try {
-			PrintWriter writer = new PrintWriter(TOKEN_FILE, "UTF-8");
+			PrintWriter writer = new PrintWriter(tokenFileName, "UTF-8");
 			writer.println(userId);
 			writer.print(token);
 			writer.close();
@@ -165,10 +186,10 @@ public class App implements IWebViewCallback {
 	}
 
 	private boolean readTokenFromFile() {
-		File file = new File(TOKEN_FILE);
+		File file = new File(tokenFileName);
 		if (file.exists() && !file.isDirectory()) {
 			try {
-				BufferedReader br = new BufferedReader(new FileReader(TOKEN_FILE));
+				BufferedReader br = new BufferedReader(new FileReader(tokenFileName));
 				userId = Integer.parseInt(br.readLine());
 				token = br.readLine();
 				br.close();
