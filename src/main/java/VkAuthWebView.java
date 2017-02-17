@@ -14,7 +14,7 @@ import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.web.WebEngine;
 
-public class WebView {
+public class VkAuthWebView {
 
 	private JFrame frame;
 	private String title;
@@ -28,7 +28,7 @@ public class WebView {
 
 	private Object lock = new Object();
 
-	public WebView(String title, int width, int height) {
+	public VkAuthWebView(String title, int width, int height) {
 		this.title = title;
 		this.width = width;
 		this.height = height;
